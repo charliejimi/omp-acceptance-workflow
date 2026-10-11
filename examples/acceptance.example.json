@@ -1,0 +1,16 @@
+{
+	"tasks": [
+		{ "todo": "Change port to 8080", "check": "grep -Eq 'port *= *8080' src/config.ts" },
+		{ "todo": "Add multiply with a test", "check": "bun test src/math.test.ts" },
+		{ "todo": "Write CHANGELOG.md", "check": "grep -q 8080 CHANGELOG.md && grep -qi multiply CHANGELOG.md" }
+	],
+	"allowedChanges": ["src/config.ts", "src/math.ts", "src/math.test.ts", "CHANGELOG.md"],
+	"forbid": [
+		{ "pattern": "mock\\s*(\\.|\\[\\s*[\"'`])\\s*module", "reason": "a module mock, which swaps out the code under test" },
+		{ "pattern": "bun:test", "files": "^(?!.*\\.test\\.[cm]?[jt]sx?$)", "reason": "test-framework code outside a test file" },
+		{ "pattern": "Bun\\.serve|createServer\\s*\\(", "reason": "a local server standing in for a real one" }
+	],
+	"maxBlocks": 3,
+	"checkTimeoutMs": 4000,
+	"stopBudgetMs": 25000
+}
