@@ -3,7 +3,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { AcceptanceSpec } from "./spec";
 
-export type Fingerprint = Map<string, number | bigint>;
+/** Content hash of each file, as text so a snapshot kept in the session reads back equal. */
+export type Fingerprint = Map<string, string>;
 
 export interface CheckResult {
 	pass: boolean;
@@ -36,7 +37,7 @@ export async function fingerprint(cwd: string): Promise<Fingerprint> {
 		// Only .git is skipped: an agent that has read the guard hides files in whatever it skips (node_modules, once).
 		if (/^\.git(\/|$)/.test(rel)) continue;
 		const abs = path.join(cwd, rel);
-		if ((await fs.stat(abs)).isFile()) files.set(rel, Bun.hash(await fs.readFile(abs)));
+		if ((await fs.stat(abs)).isFile()) files.set(rel, String(Bun.hash(await fs.readFile(abs))));
 	}
 	return files;
 }
@@ -107,17 +108,20 @@ interface TodoToolResult {
 	role?: string;
 	toolName?: string;
 	isError?: boolean;
-	details?: { phases?: { tasks: { content: string; status: string }[] }[] };
+	details?: { phases?: Phase[] };
+}
+
+/** The phases of the last successful todo tool result; undefined when there is none. */
+export function lastTodoPhases(messages: readonly unknown[]): Phase[] | undefined {
+	for (const m of [...messages].reverse() as TodoToolResult[]) {
+		if (m?.role === "toolResult" && m.toolName === "todo" && !m.isError && m.details?.phases) return m.details.phases;
+	}
+	return undefined;
 }
 
 /** Latest status of each todo item, from the last successful todo tool result. Keys are lower-cased titles. */
 export function claimedStatuses(messages: readonly unknown[]): Map<string, string> {
-	for (const m of [...messages].reverse() as TodoToolResult[]) {
-		if (m?.role !== "toolResult" || m.toolName !== "todo" || m.isError || !m.details?.phases) continue;
-		const tasks = m.details.phases.flatMap(p => p.tasks);
-		return new Map(tasks.map(t => [t.content.trim().toLowerCase(), t.status]));
-	}
-	return new Map();
+	return claimedFromPhases(lastTodoPhases(messages) ?? []);
 }
 
 export function claimedFor(claimed: Map<string, string>, todo: string): string {

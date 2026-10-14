@@ -2,6 +2,7 @@ import { afterAll, afterEach, describe, expect, it } from "bun:test";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { resetSettingsForTest } from "@oh-my-pi/pi-coding-agent/config/settings";
+import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
 import {
 	DOABLE,
 	PACKAGE,
@@ -55,6 +56,35 @@ describe("per-item gate (AC-2)", () => {
 		const result = await done("Change port to 8080");
 		expect(result?.block).toBe(true);
 		expect(result?.reason).toContain("sum.test.ts");
+	}, 30_000);
+});
+
+describe("a resumed session keeps the tree its work started from (omp --continue)", () => {
+	it("still refuses done after a restart when a file outside the allowed list changed before it", async () => {
+		const work = makeFixture();
+		const specPath = writeSpec(tempDir("aw-spec-"), day17Spec());
+		const session = SessionManager.inMemory(work);
+		await loadPackage(work, specPath, session);
+		fs.writeFileSync(path.join(work, "src/config.ts"), "export const port = 8080;\n");
+		cheatOnTheAddTest(work);
+		const resumed = await loadPackage(work, specPath, session);
+		const result = await resumed.done("Change port to 8080");
+		expect(result?.block).toBe(true);
+		expect(result?.reason).toContain("sum.test.ts");
+		expect(resumed.handlerErrors).toEqual([]);
+	}, 30_000);
+
+	it("starts fresh in a new session, and for another spec in the same session", async () => {
+		const work = makeFixture();
+		const specPath = writeSpec(tempDir("aw-spec-"), day17Spec());
+		const session = SessionManager.inMemory(work);
+		await loadPackage(work, specPath, session);
+		fs.writeFileSync(path.join(work, "src/config.ts"), "export const port = 8080;\n");
+		cheatOnTheAddTest(work);
+		// A new session is new work, so the tree as it is now is where that work starts.
+		expect(await (await loadPackage(work, specPath, SessionManager.inMemory(work))).done("Change port to 8080")).toBeUndefined();
+		const other = writeSpec(tempDir("aw-spec-"), day17Spec());
+		expect(await (await loadPackage(work, other, session)).done("Change port to 8080")).toBeUndefined();
 	}, 30_000);
 });
 

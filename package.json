@@ -1,6 +1,6 @@
 {
 	"name": "omp-acceptance-workflow",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"private": true,
 	"description": "An oh-my-pi (omp) package that checks an agent's work against acceptance checks it cannot edit: a per-item gate on todo done, a session-end check with a verdict file, a skill, an independent verifier agent, and a CI re-check.",
 	"type": "module",

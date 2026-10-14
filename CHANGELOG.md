@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.1] - 2026-10-14
+
+### Fixed
+
+- The tree a session's work started from is saved in the session and restored when the session is resumed (`omp --continue`, `--resume`, `/resume`). Files changed outside the allowed list, and forbidden patterns added, before a restart are still caught by the per-item gate and the session-end check. Before, every omp start took the tree as it was, so after a restart those changes were accepted and the verdict read `PASS`.
+- The last todo phases are restored with it, so a whole-phase `done` right after a restart runs its checks.
+- A new session, or a session reused with another spec, starts from the current tree. When omp runs without a session, the snapshot lasts for that process only, as before.
+
 ## [0.1.0] - 2026-10-11
 
 ### Added

@@ -1,6 +1,6 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import type { ExtensionAPI, ExtensionCommandContext } from "@oh-my-pi/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import {
 	type Evaluation,
 	type Fingerprint,
@@ -13,6 +13,7 @@ import {
 	evaluate,
 	fingerprint,
 	forbiddenHits,
+	lastTodoPhases,
 	makeCheckHome,
 	runCheck,
 } from "./checks";
@@ -22,6 +23,7 @@ const WITHHELD = "[withheld: this output shows the acceptance spec, which is not
 const REFUSED =
 	"Not run: this call names the acceptance spec or the acceptance tooling, which are not for the agent to read or change. Work on the tasks instead.";
 const WIDGET = "acceptance";
+const BASELINE_ENTRY = "acceptance-baseline";
 const USAGE = "usage: /acceptance status | /acceptance check";
 const PACKAGE_DIR = path.resolve(import.meta.dir, "..");
 // The skill invocation points the agent at this folder, so it stays readable.
@@ -103,10 +105,30 @@ export default function acceptanceWorkflow(pi: ExtensionAPI): void {
 		recordWritten = true;
 	}
 
+	/**
+	 * The tree as this session's work began. The first start saves it in the session, so a session
+	 * resumed later (`omp --continue`, `--resume`, `/resume`) compares against where the work started,
+	 * not against whatever the agent left before the restart. Saved per spec, so a session reused for
+	 * another assignment starts that one fresh.
+	 */
+	async function beginWork(ctx: ExtensionContext, specPath: string): Promise<void> {
+		const entries = ctx.sessionManager.getBranch() as Array<{ type?: string; customType?: string; data?: unknown; message?: unknown }>;
+		const saved = entries.findLast(e => e.type === "custom" && e.customType === BASELINE_ENTRY && (e.data as { spec?: unknown } | undefined)?.spec === specPath);
+		const files = (saved?.data as { files?: Record<string, string> } | undefined)?.files;
+		baseline = files ? new Map(Object.entries(files)) : await fingerprint(ctx.cwd);
+		phases = lastTodoPhases(entries.filter(e => e.type === "message").map(e => e.message)) ?? [];
+		if (files) return;
+		try {
+			pi.appendEntry(BASELINE_ENTRY, { spec: specPath, files: Object.fromEntries(baseline) });
+		} catch {
+			// No session runtime to keep it in: the snapshot then lasts for this process only, as before.
+		}
+	}
+
 	pi.on("session_start", async (_event, ctx) => {
 		const resolved = await resolve(ctx.cwd);
 		if (resolved.status === "off") return;
-		baseline = await fingerprint(ctx.cwd);
+		await beginWork(ctx, resolved.specPath);
 		if (resolved.status === "error") {
 			ctx.ui.notify(`acceptance: ${resolved.reason}`, "error");
 			return;
@@ -118,6 +140,17 @@ export default function acceptanceWorkflow(pi: ExtensionAPI): void {
 		} catch {
 			// no earlier record
 		}
+	});
+
+	// /new and /resume inside one omp process switch sessions without a new session_start.
+	pi.on("session_switch", async (_event, ctx) => {
+		const resolved = await resolve(ctx.cwd);
+		if (resolved.status === "off") return;
+		blocks = 0;
+		lastCheck = undefined;
+		changedSinceCheck = false;
+		recordWritten = false;
+		await beginWork(ctx, resolved.specPath);
 	});
 
 	pi.on("tool_result", async (event, ctx) => {

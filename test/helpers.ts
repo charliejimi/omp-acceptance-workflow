@@ -104,8 +104,12 @@ export function closeRegistry(): void {
 	registry = undefined;
 }
 
-/** Loads the package through omp's own loader and runner, sets `--acceptance`, and starts the session. */
-export async function loadPackage(cwd: string, specPath?: string) {
+/**
+ * Loads the package through omp's own loader and runner, sets `--acceptance`, and starts the session.
+ * Pass `sessionManager` to load the package again on a session it already used, the way omp does
+ * on `--continue`; the package's own session entries are then kept in it.
+ */
+export async function loadPackage(cwd: string, specPath?: string, sessionManager?: SessionManager) {
 	// omp's 30 s handler cap is tested through stopBudgetMs (the budget test); here it only adds flakiness on slow machines.
 	testSetExtensionHandlerTimeoutMs(120_000);
 	const result = await discoverAndLoadExtensions([PACKAGE], cwd, undefined, undefined, { ambient: false });
@@ -114,7 +118,10 @@ export async function loadPackage(cwd: string, specPath?: string) {
 	if (loadErrors.length > 0 || extensions.length !== 1) {
 		throw new Error(`package did not load: ${JSON.stringify(loadErrors)} (${extensions.length} extensions)`);
 	}
-	const runner = new ExtensionRunner(extensions, result.runtime, cwd, SessionManager.inMemory(cwd), await models());
+	const runner = new ExtensionRunner(extensions, result.runtime, cwd, sessionManager ?? SessionManager.inMemory(cwd), await models());
+	if (sessionManager) {
+		runner.initialize({ appendEntry: (customType: string, data?: unknown) => sessionManager.appendCustomEntry(customType, data) } as never, {} as never);
+	}
 	const handlerErrors: string[] = [];
 	runner.onError(e => handlerErrors.push(`${e.event}: ${e.error}`));
 	if (specPath !== undefined) runner.setFlagValue("acceptance", specPath);
